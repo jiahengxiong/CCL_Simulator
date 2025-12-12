@@ -24,7 +24,7 @@ def build_topology():
         ("GPU1", "SW2"), ("SW2", "GPU3"),
     ]
     for u, v in edges:
-        G.add_edge(u, v, link_rate_bps=100e9, prop_delay=0)
+        G.add_edge(u, v, link_rate_bps=100e9, prop_delay=0.0)
 
     return G
 
@@ -35,7 +35,7 @@ def main():
 
     sim = Sim(env, topo,
         packet_size_bytes=1024,
-        header_size_bytes=1024)
+        header_size_bytes=0)
 
     MB = 1024 * 1024
     chunk_size = 64 * MB
