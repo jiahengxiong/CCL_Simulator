@@ -21,10 +21,11 @@ def build_topology():
     edges = [
         ("GPU0", "SW1"), ("SW1", "GPU1"),
         ("GPU1", "SW2"), ("SW2", "GPU2"),
-        ("GPU1", "SW2"), ("SW2", "GPU3"),
+         ("SW2", "GPU3"),
     ]
     for u, v in edges:
         G.add_edge(u, v, link_rate_bps=100e9, prop_delay=0.0)
+        G.add_edge(v, u, link_rate_bps=100e9, prop_delay=0.0)
 
     return G
 
@@ -42,12 +43,14 @@ def main():
 
     policy = [
         # chunk 0: GPU0 -> GPU1, line-rate
-        # [chunkid, src, dst, QPid, rate, chunksize, path]
-        PolicyEntry(0, "GPU0", "GPU1", 0, "Max", chunk_size, ["GPU0", "SW1", "GPU1"]),
+        # [chunkid, src, dst, QPid, rate, chunksize, path, time]
+        # PolicyEntry(0, "GPU0", "GPU1", 0, "Max", chunk_size, ["GPU0", "SW1", "GPU1"]),
+        # PolicyEntry(3, "GPU0", "GPU1", 1, "Max", chunk_size, ["GPU0", "SW1", "GPU1"]),
         # fan-out after GPU1 fully receives chunk 0:
-        PolicyEntry(0, "GPU1", "GPU2", 0, "Max",  chunk_size, ["GPU1", "SW2", "GPU2"]),
-        PolicyEntry(0, "GPU1", "GPU3", 0, "Max",  chunk_size, ["GPU1", "SW2", "GPU3"]),
-        PolicyEntry(1, "GPU0", "GPU1", 0, "Max", chunk_size, ["GPU0", "SW1", "GPU1"]),
+        # PolicyEntry(0, "GPU1", "GPU2", 0, "Max",  chunk_size, ["GPU1", "SW2", "GPU2"]),
+        # PolicyEntry(0, "GPU1", "GPU3", 1, "Max",  chunk_size, ["GPU1", "SW2", "GPU3"]),
+        PolicyEntry(1, "GPU2", "GPU1", 0, "Max", chunk_size, ["GPU2", "SW2", "GPU1"]),
+        PolicyEntry(2, "GPU3", "GPU1", 0, "Max", chunk_size, ["GPU3", "SW2", "GPU1"]),
     ]
 
     sim.load_policy(policy)

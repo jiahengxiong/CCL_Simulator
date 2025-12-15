@@ -17,6 +17,7 @@ class PolicyEntry:
     rate: RateInput        # number (bps) or "Max"
     chunk_size_bytes: int
     path: List[str]
+    time: float = 0.0  # earliest trigger time (seconds)
 
     def normalized_rate(self) -> tuple[float, bool]:
         if isinstance(self.rate, str):

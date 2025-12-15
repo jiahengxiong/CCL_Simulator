@@ -27,6 +27,8 @@ class PolicyEngine:
 
         self.rules: Dict[Tuple[Union[int, str], str], List[PolicyEntry]] = {}
         self._fired: Set[Tuple[Union[int, str], str]] = set()  # (chunk_id, src)
+        self._scheduled_entries: Set[int] = set()
+
 
     def install(self, entries: Iterable[PolicyEntry]) -> None:
         for e in entries:
@@ -62,6 +64,15 @@ class PolicyEngine:
                 node.mark_initial_chunk(chunk_id)
                 self.on_chunk_ready(s, chunk_id)
 
+    # def on_chunk_ready(self, node_id: str, chunk_id: Union[int, str]) -> None:
+    #     key = (chunk_id, node_id)
+    #     if key in self._fired:
+    #         return
+    #     self._fired.add(key)
+    #
+    #     for e in self.rules.get(key, []):
+    #         self._fire_entry(e)
+
     def on_chunk_ready(self, node_id: str, chunk_id: Union[int, str]) -> None:
         key = (chunk_id, node_id)
         if key in self._fired:
@@ -69,7 +80,18 @@ class PolicyEngine:
         self._fired.add(key)
 
         for e in self.rules.get(key, []):
-            self._fire_entry(e)
+            eid = id(e)
+            if eid in self._scheduled_entries:
+                continue
+            self._scheduled_entries.add(eid)
+            self.env.process(self._fire_entry_when_allowed(e))
+
+    def _fire_entry_when_allowed(self, e: PolicyEntry):
+        # wait until earliest time
+        wait = max(0.0, float(e.time) - self.env.now)
+        if wait > 0:
+            yield self.env.timeout(wait)
+        self._fire_entry(e)
 
     def _fire_entry(self, e: PolicyEntry) -> None:
         rate_bps, use_max_rate = e.normalized_rate()
