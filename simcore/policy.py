@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Union, Iterable, Set
 
@@ -17,7 +18,10 @@ class PolicyEngine:
     """Policy-driven injection.
 
     Installs rules keyed by (chunk_id, src).
-    When (src, chunk_id) becomes ready, fire all rules at that src immediately.
+    When (src, chunk_id) becomes ready, schedule all rules at that src.
+    Each rule fires when BOTH conditions hold:
+      - env.now >= e.time (release time)
+      - all chunks in e.dependency are ready at e.src
     """
 
     def __init__(self, env: simpy.Environment, sim: "Sim", spec: PolicySpec):
@@ -29,6 +33,9 @@ class PolicyEngine:
         self._fired: Set[Tuple[Union[int, str], str]] = set()  # (chunk_id, src)
         self._scheduled_entries: Set[int] = set()
 
+        # NEW: per-(node,chunk) readiness events for dependency gating
+        self._ready_events: Dict[Tuple[str, Union[int, str]], simpy.Event] = {}
+        self._ready_marked: Set[Tuple[str, Union[int, str]]] = set()
 
     def install(self, entries: Iterable[PolicyEntry]) -> None:
         for e in entries:
@@ -62,18 +69,36 @@ class PolicyEngine:
                 if node.cfg.node_type != "gpu":
                     raise ValueError(f"Initial source {s} for chunk {chunk_id} must be a GPU")
                 node.mark_initial_chunk(chunk_id)
+                # Mark ready + schedule any outgoing entries from (s, chunk_id)
                 self.on_chunk_ready(s, chunk_id)
 
-    # def on_chunk_ready(self, node_id: str, chunk_id: Union[int, str]) -> None:
-    #     key = (chunk_id, node_id)
-    #     if key in self._fired:
-    #         return
-    #     self._fired.add(key)
-    #
-    #     for e in self.rules.get(key, []):
-    #         self._fire_entry(e)
+    # ---- Dependency readiness bookkeeping ----
+    def _ready_event(self, node_id: str, chunk_id: Union[int, str]) -> simpy.Event:
+        key = (node_id, chunk_id)
+        ev = self._ready_events.get(key)
+        if ev is None:
+            ev = simpy.Event(self.env)
+            self._ready_events[key] = ev
+        return ev
 
+    def _mark_ready(self, node_id: str, chunk_id: Union[int, str]) -> None:
+        key = (node_id, chunk_id)
+        if key in self._ready_marked:
+            return
+        self._ready_marked.add(key)
+
+        ev = self._ready_events.get(key)
+        if ev is None:
+            ev = simpy.Event(self.env)
+            self._ready_events[key] = ev
+        if not ev.triggered:
+            ev.succeed()
+
+    # ---- Runtime hook from simulator ----
     def on_chunk_ready(self, node_id: str, chunk_id: Union[int, str]) -> None:
+        # NEW: mark this (node, chunk) ready for dependency gating
+        self._mark_ready(node_id, chunk_id)
+
         key = (chunk_id, node_id)
         if key in self._fired:
             return
@@ -87,10 +112,18 @@ class PolicyEngine:
             self.env.process(self._fire_entry_when_allowed(e))
 
     def _fire_entry_when_allowed(self, e: PolicyEntry):
-        # wait until earliest time
+        # 1) wait until earliest time
         wait = max(0.0, float(e.time) - self.env.now)
         if wait > 0:
             yield self.env.timeout(wait)
+
+        # 2) wait until all dependencies are ready at e.src
+        deps = e.dependency or []
+        if deps:
+            evs = [self._ready_event(e.src, dep_chunk) for dep_chunk in deps]
+            yield simpy.events.AllOf(self.env, evs)
+
+        # 3) fire
         self._fire_entry(e)
 
     def _fire_entry(self, e: PolicyEntry) -> None:

@@ -42,6 +42,8 @@ class Sim:
         self._link_rate_schedule: Optional[LinkRateSchedule] = link_rate_schedule
 
         self._build_nodes_and_ports()
+        self.tx_first_send_time: Dict[TxId, float] = {}
+
 
     def load_link_rate_schedule(self, schedule: Optional[LinkRateSchedule]) -> None:
         """Optional. Provide a dict: time -> list[(u, v, rate_bps)].
@@ -157,6 +159,8 @@ class Sim:
         node = self.nodes[src_id]
         if node.cfg.node_type != "gpu":
             raise ValueError("Policy src must be a GPU")
+        if pkt.seq == 0 and pkt.tx_id not in self.tx_first_send_time:
+            self.tx_first_send_time[pkt.tx_id] = self.env.now
         node._send_to_next(pkt)
 
     # ---- Callbacks ----

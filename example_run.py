@@ -20,10 +20,17 @@ def build_topology():
     # only 2 GPUs, direct link both directions (optional)
     G.add_node("GPU0", type="gpu", num_qps=2, quantum_packets=1, tx_proc_delay=0.0, gpu_store_delay=0.0)
     G.add_node("GPU1", type="gpu", num_qps=2, quantum_packets=1, tx_proc_delay=0.0, gpu_store_delay=0.0)
+    G.add_node("GPU2", type="gpu", num_qps=2, quantum_packets=1, tx_proc_delay=0.0, gpu_store_delay=0.0)
+    G.add_node("GPU3", type="gpu", num_qps=2, quantum_packets=1, tx_proc_delay=0.0, gpu_store_delay=0.0)
+
 
     # directed edges
     G.add_edge("GPU0", "GPU1", link_rate_bps=LINK_RATE_0, prop_delay=0.0)
     G.add_edge("GPU1", "GPU0", link_rate_bps=LINK_RATE_0, prop_delay=0.0)
+    G.add_edge("GPU1", "GPU2", link_rate_bps=LINK_RATE_0, prop_delay=0.0)
+    G.add_edge("GPU2", "GPU1", link_rate_bps=LINK_RATE_0, prop_delay=0.0)
+    G.add_edge("GPU1", "GPU3", link_rate_bps=LINK_RATE_0, prop_delay=0.0)
+    G.add_edge("GPU3", "GPU1", link_rate_bps=LINK_RATE_0, prop_delay=0.0)
 
     return G
 
@@ -43,13 +50,15 @@ def main():
     policy = [
         # [chunkid, src, dst, qpid, rate, chunksize, path, time]
         PolicyEntry("A", "GPU0", "GPU1", 0, "Max", chunk_size, ["GPU0", "GPU1"], time=0.0),
-        PolicyEntry("B", "GPU0", "GPU1", 0, "Max", chunk_size, ["GPU0", "GPU1"], time=1.0),
+        PolicyEntry("B", "GPU2", "GPU1", 0, "Max", chunk_size, ["GPU2", "GPU1"], time=1.0),
+        PolicyEntry("C", "GPU1", "GPU3", 0, "Max", chunk_size, ["GPU1", "GPU3"], time=0.0, dependency=["A", "B"]),
+        PolicyEntry("D", "GPU1", "GPU3", 0, "Max", chunk_size, ["GPU1", "GPU3"], time=0.0)
     ]
     sim.load_policy(policy)
 
     # At t=1.0s, reduce GPU0->GPU1 rate
     rate_updates = {
-        1.0: [("GPU0", "GPU1", LINK_RATE_1)],
+        1.0: [("GPU1", "GPU3", LINK_RATE_1)],
     }
     sim.load_link_rate_schedule(rate_updates)
 

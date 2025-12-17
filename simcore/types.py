@@ -1,16 +1,18 @@
 from __future__ import annotations
-from dataclasses import dataclass
+
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Union
 
 RateInput = Union[float, int, str]
+ChunkId = Union[int, str]
 
 
 @dataclass(frozen=True)
 class PolicyEntry:
     """One policy rule:
-      [chunk_id, src, dst, qpid, rate, chunk_size_bytes, path_nodes]
+      [chunk_id, src, dst, qpid, rate, chunk_size_bytes, path_nodes, time, dependency]
     """
-    chunk_id: Union[int, str]
+    chunk_id: ChunkId
     src: str
     dst: str
     qpid: int
@@ -18,6 +20,9 @@ class PolicyEntry:
     chunk_size_bytes: int
     path: List[str]
     time: float = 0.0  # earliest trigger time (seconds)
+
+    # NEW: dependency chunks that must be ready at src before this entry can fire
+    dependency: List[ChunkId] = field(default_factory=list)
 
     def normalized_rate(self) -> tuple[float, bool]:
         if isinstance(self.rate, str):
@@ -37,15 +42,24 @@ class PolicyEntry:
         if self.qpid < 0:
             raise ValueError("qpid must be >= 0")
 
+        # dependency is optional; if provided, must be a list
+        if self.dependency is None:
+            raise ValueError("dependency must be omitted or a list (cannot be None)")
+        if not isinstance(self.dependency, list):
+            raise ValueError("dependency must be a list")
+        # (optional sanity) avoid self-dependency which can deadlock if used naively
+        if self.chunk_id in self.dependency:
+            raise ValueError(f"dependency must not contain itself (chunk_id={self.chunk_id})")
 
-TxId = Tuple[Union[int, str], str, str]  # (chunk_id, src, dst)
+
+TxId = Tuple[ChunkId, str, str]  # (chunk_id, src, dst)
 
 
 @dataclass(slots=True)
 class Packet:
     # Transmission identity
     tx_id: TxId
-    chunk_id: Union[int, str]
+    chunk_id: ChunkId
     tx_src: str
     tx_dst: str
 
