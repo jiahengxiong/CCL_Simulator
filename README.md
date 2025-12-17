@@ -11,7 +11,7 @@
 ## Input format (policy)
 A simulation is driven by a list of policy entries.
 
-    [chunk_id, src, dst, qpid, rate, chunk_size_bytes, path]
+    [chunk_id, src, dst, qpid, rate, chunk_size_bytes, path, time, dependency]
 
 ### Field breakdown
 - chunk_id: identifier of the chunk (int or str)
