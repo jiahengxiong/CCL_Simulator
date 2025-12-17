@@ -24,6 +24,11 @@ class Port:
     - Per-packet service time: (pkt.size_bytes + header) * 8 / eff_rate,
       where eff_rate = link_rate if use_max_rate else min(pkt.rate_bps, link_rate).
     - Prop delay: after service, packet arrives at next hop after prop_delay.
+
+    Optimization changes vs original:
+      1) No always-alive _run() process. We start a drain process only when queue transitions empty->non-empty.
+      2) No per-packet env.process(_deliver_after). We schedule delivery via timeout callbacks.
+      3) Track total queued packets (_nq) to avoid scanning qps in _has_data().
     """
 
     def __init__(
@@ -50,10 +55,11 @@ class Port:
 
         self.qps: Dict[int, Deque[Packet]] = {i: deque() for i in range(self.num_qps)}
         self._rr = 0
-        self._wakeup = simpy.Event(env)
         self.header_size_bytes = max(0, int(header_size_bytes))
 
-        env.process(self._run())
+        # New: on-demand drain process + total queued counter
+        self._proc = None  # simpy.events.Process | None
+        self._nq = 0       # total number of queued packets across all QPs
 
     def set_link_rate_bps(self, new_rate_bps: float) -> None:
         """Update this directed link's line rate at runtime.
@@ -72,14 +78,20 @@ class Port:
 
     def enqueue(self, pkt: Packet, qpid: int) -> None:
         q = self.qps[int(qpid) % self.num_qps]
+        was_empty = (self._nq == 0)
+
         q.append(pkt)
-        if not self._wakeup.triggered:
-            self._wakeup.succeed()
+        self._nq += 1
+
+        # Start a drain process only on empty->non-empty transition.
+        if was_empty and self._proc is None:
+            self._proc = self.env.process(self._drain())
 
     def _has_data(self) -> bool:
-        return any(self.qps[i] for i in range(self.num_qps))
+        return self._nq > 0
 
     def _next_non_empty_qp(self) -> Optional[int]:
+        # RR scan: O(num_qps). If num_qps is large, we can optimize further later.
         for i in range(self.num_qps):
             idx = (self._rr + i) % self.num_qps
             if self.qps[idx]:
@@ -101,22 +113,26 @@ class Port:
         total_bits = (pkt.size_bytes + self.header_size_bytes) * 8
         return total_bits / eff
 
-    def _run(self):
-        while True:
-            if not self._has_data():
-                self._wakeup = simpy.Event(self.env)
-                yield self._wakeup
-                continue
+    def _schedule_deliver(self, pkt: Packet, delay: float) -> None:
+        if delay <= 0:
+            self.deliver_fn(pkt)
+            return
 
+        evt = self.env.timeout(delay)
+        # callback signature: cb(event). Bind pkt via default arg.
+        evt.callbacks.append(lambda _ev, p=pkt: self.deliver_fn(p))
+
+    def _drain(self):
+        # Drain until empty, then exit (no permanent generator).
+        while self._nq > 0:
             qp = self._next_non_empty_qp()
             if qp is None:
-                self._wakeup = simpy.Event(self.env)
-                yield self._wakeup
-                continue
+                break
 
             sent = 0
             while sent < self.quantum_packets and self.qps[qp]:
                 pkt = self.qps[qp].popleft()
+                self._nq -= 1
 
                 if self.tx_proc_delay > 0:
                     yield self.env.timeout(self.tx_proc_delay)
@@ -129,12 +145,10 @@ class Port:
                 if pd < 0:
                     raise ValueError("prop_delay must be >= 0")
 
-                self.env.process(self._deliver_after(pkt, pd))
+                self._schedule_deliver(pkt, pd)
                 sent += 1
 
             self._rr = (qp + 1) % self.num_qps
 
-    def _deliver_after(self, pkt: Packet, delay: float):
-        if delay > 0:
-            yield self.env.timeout(delay)
-        self.deliver_fn(pkt)
+        # Mark idle so next enqueue can start a new drain process.
+        self._proc = None

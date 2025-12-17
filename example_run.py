@@ -11,7 +11,7 @@ LINK_RATE_1 = 50e9
 PACKET_BYTES = 1500
 HEADER_BYTES = 0
 
-CHUNK_MB = 64  # 你也可以改小一点让测试更快，比如 4
+CHUNK_MB = 256  # 你也可以改小一点让测试更快，比如 4
 
 
 def build_topology():
@@ -52,7 +52,9 @@ def main():
         PolicyEntry("A", "GPU0", "GPU1", 0, "Max", chunk_size, ["GPU0", "GPU1"], time=0.0),
         PolicyEntry("B", "GPU2", "GPU1", 0, "Max", chunk_size, ["GPU2", "GPU1"], time=1.0),
         PolicyEntry("C", "GPU1", "GPU3", 0, "Max", chunk_size, ["GPU1", "GPU3"], time=0.0, dependency=["A", "B"]),
-        PolicyEntry("D", "GPU1", "GPU3", 0, "Max", chunk_size, ["GPU1", "GPU3"], time=0.0)
+        PolicyEntry("D", "GPU1", "GPU3", 0, "Max", chunk_size, ["GPU1", "GPU3"], time=0.0),
+        # PolicyEntry("E", "GPU0", "GPU1", 0, "Max", chunk_size, ["GPU0", "GPU1"], time=2.0),
+        # PolicyEntry("E", "GPU1", "GPU2", 0, "Max", chunk_size, ["GPU1", "GPU2"], time=2.0)
     ]
     sim.load_policy(policy)
 
