@@ -20,6 +20,8 @@ A simulation is driven by a list of policy entries.
 - rate: numeric value in bps, or "Max" (use link line rate)
 - chunk_size_bytes: payload size of the chunk in bytes
 - path: explicit forwarding path as a list of node IDs, starting with src and ending with dst
+- time: trigger time
+- dependency: Received chunks before trigger
 
 ### Policy semantics
 - Each policy entry is installed at (chunk_id, src).
