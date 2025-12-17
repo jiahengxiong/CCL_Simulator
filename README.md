@@ -56,7 +56,7 @@ A simulation is driven by a list of policy entries.
 These assumptions isolate the effects of CCL scheduling and data dependencies without confounding transport dynamics.
 
 ## Dependencies
-- Python >= 3.8
+- Python >= 3.11
 - simpy
 - networkx
 
