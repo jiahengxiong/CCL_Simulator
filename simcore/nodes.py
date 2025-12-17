@@ -7,7 +7,7 @@ from .port import Port, LinkSpec
 from .types import Packet, TxId
 
 
-@dataclass
+@dataclass(slots=True)
 class NodeConfig:
     node_id: str
     node_type: str  # "gpu" or "switch"

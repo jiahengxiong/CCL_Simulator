@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import math
 import simpy
 from collections import deque
 from dataclasses import dataclass
@@ -13,13 +15,14 @@ class LinkSpec:
     prop_delay: float
 
 
+@dataclass
 class Port:
     """One directed output link == one Port.
 
     - Single-server: sends one packet at a time.
     - Multiple QPs: RR across non-empty QPs, with configurable quantum (#packets per visit).
-    - Per-packet service time: pkt.bits / eff_rate, where eff_rate = link_rate if use_max_rate
-      else min(pkt.rate_bps, link_rate).
+    - Per-packet service time: (pkt.size_bytes + header) * 8 / eff_rate,
+      where eff_rate = link_rate if use_max_rate else min(pkt.rate_bps, link_rate).
     - Prop delay: after service, packet arrives at next hop after prop_delay.
     """
 
@@ -33,7 +36,7 @@ class Port:
         num_qps: int = 1,
         quantum_packets: int = 1,
         tx_proc_delay: float = 0.0,
-        header_size_bytes: int = 0
+        header_size_bytes: int = 0,
     ):
         self.env = env
         self.owner_id = owner_id
@@ -51,6 +54,21 @@ class Port:
         self.header_size_bytes = max(0, int(header_size_bytes))
 
         env.process(self._run())
+
+    def set_link_rate_bps(self, new_rate_bps: float) -> None:
+        """Update this directed link's line rate at runtime.
+
+        Semantics: affects packets whose service starts after this update.
+        Packets already in service keep their previously computed service time.
+        """
+        r = float(new_rate_bps)
+        if not math.isfinite(r) or r <= 0:
+            raise ValueError(
+                f"new link_rate_bps must be finite and > 0 on {self.owner_id}->{self.next_hop_id}, got {new_rate_bps}"
+            )
+
+        # LinkSpec is frozen=True; replace the whole object.
+        self.link = LinkSpec(link_rate_bps=r, prop_delay=self.link.prop_delay)
 
     def enqueue(self, pkt: Packet, qpid: int) -> None:
         q = self.qps[int(qpid) % self.num_qps]

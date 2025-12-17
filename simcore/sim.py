@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import simpy
 import networkx as nx
 from typing import Dict, List, Tuple, Optional, Union, Iterable
@@ -8,10 +9,21 @@ from .types import PolicyEntry, TxId, Packet
 from .policy import PolicyEngine, PolicySpec
 
 
+# schedule: time -> [(u, v, new_rate_bps), ...]
+LinkRateSchedule = Dict[float, List[Tuple[str, str, float]]]
+
+
 class Sim:
     """Policy-driven packet-level simulator."""
 
-    def __init__(self, env: simpy.Environment, topo: nx.DiGraph, packet_size_bytes: int = 1500, header_size_bytes: int = 0,):
+    def __init__(
+        self,
+        env: simpy.Environment,
+        topo: nx.DiGraph,
+        packet_size_bytes: int = 1500,
+        header_size_bytes: int = 0,
+        link_rate_schedule: Optional[LinkRateSchedule] = None,
+    ):
         self.env = env
         self.topo = topo
 
@@ -20,10 +32,22 @@ class Sim:
         self.tx_complete_time: Dict[TxId, float] = {}
         self.chunk_ready_time: Dict[Tuple[Union[int, str], str], float] = {}
 
-        self.policy = PolicyEngine(env, self, PolicySpec(packet_size_bytes=packet_size_bytes, header_size_bytes=header_size_bytes))
+        self.policy = PolicyEngine(
+            env,
+            self,
+            PolicySpec(packet_size_bytes=packet_size_bytes, header_size_bytes=header_size_bytes),
+        )
+
+        # Optional runtime link-rate updates. If None or {}, link rates stay constant.
+        self._link_rate_schedule: Optional[LinkRateSchedule] = link_rate_schedule
 
         self._build_nodes_and_ports()
 
+    def load_link_rate_schedule(self, schedule: Optional[LinkRateSchedule]) -> None:
+        """Optional. Provide a dict: time -> list[(u, v, rate_bps)].
+        If schedule is None or empty, link rates remain constant.
+        """
+        self._link_rate_schedule = schedule
 
     def _build_nodes_and_ports(self) -> None:
         # Nodes
@@ -89,7 +113,39 @@ class Sim:
         self.policy.install(entries)
 
     def start(self) -> None:
+        # Start link-rate update process (optional)
+        if self._link_rate_schedule:
+            self.env.process(self._run_link_rate_updates(self._link_rate_schedule))
         self.policy.bootstrap()
+
+    # ---- Link-rate updates ----
+    def _set_link_rate(self, u: str, v: str, rate_bps: float) -> None:
+        if u not in self.nodes:
+            raise KeyError(f"Unknown node {u}")
+        if v not in self.nodes:
+            raise KeyError(f"Unknown node {v}")
+
+        src = self.nodes[u]
+        port = src.ports.get(v, None)
+        if port is None:
+            raise KeyError(f"No directed link/port {u}->{v}")
+
+        # Update the Port's rate
+        port.set_link_rate_bps(rate_bps)
+
+        # Keep topology edge attr in sync (useful for debug/export)
+        if self.topo.has_edge(u, v):
+            self.topo[u][v]["link_rate_bps"] = float(rate_bps)
+
+    def _run_link_rate_updates(self, schedule: LinkRateSchedule):
+        # Apply updates in chronological order
+        for t in sorted(schedule.keys()):
+            t = float(t)
+            if t > self.env.now:
+                yield self.env.timeout(t - self.env.now)
+            # t <= now: apply immediately
+            for (u, v, rate) in schedule[t]:
+                self._set_link_rate(u, v, rate)
 
     # ---- Injection ----
     def register_tx(self, tx_id: TxId) -> None:

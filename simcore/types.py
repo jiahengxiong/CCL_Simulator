@@ -41,7 +41,7 @@ class PolicyEntry:
 TxId = Tuple[Union[int, str], str, str]  # (chunk_id, src, dst)
 
 
-@dataclass
+@dataclass(slots=True)
 class Packet:
     # Transmission identity
     tx_id: TxId
