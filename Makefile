@@ -8,28 +8,49 @@ SIMCORE_PKG := simcore
 
 DEPS := simpy networkx nuitka
 
+# Nuitka flags
+NUITKA_COMMON := --module $(SIMCORE_PKG) \
+                 --follow-import-to=$(SIMCORE_PKG) \
+                 --output-dir=$(BUILD_DIR)
+
+# Debug build: safer / easier to iterate
+NUITKA_DEBUG := --remove-output
+
+# Release build: typical safe performance-oriented options
+NUITKA_RELEASE := --remove-output \
+                  --lto=yes \
+                  --assume-yes-for-downloads
+
 # =========================
 # Phony targets
 # =========================
-.PHONY: all build simcore deps run clean
+.PHONY: all build debug release simcore simcore_debug simcore_release deps run clean
 
 all: build
 
-# =========================
-# Build everything
-# =========================
-build: simcore deps
+# Default build = release + deps
+build: release
 	@echo "Build finished."
+
+debug: simcore_debug deps
+	@echo "Debug build finished."
+
+release: simcore_release deps
+	@echo "Release build finished."
+
+# Keep old target name for compatibility
+simcore: simcore_release
 
 # =========================
 # Build simcore with Nuitka
 # =========================
-simcore:
-	@echo ">>> Building simcore with Nuitka"
-	$(PYTHON) -m nuitka \
-		--module $(SIMCORE_PKG) \
-		--follow-import-to=$(SIMCORE_PKG) \
-		--output-dir=$(BUILD_DIR)
+simcore_debug:
+	@echo ">>> Building simcore (debug) with Nuitka"
+	$(PYTHON) -m nuitka $(NUITKA_COMMON) $(NUITKA_DEBUG)
+
+simcore_release:
+	@echo ">>> Building simcore (release) with Nuitka"
+	$(PYTHON) -m nuitka $(NUITKA_COMMON) $(NUITKA_RELEASE)
 
 # =========================
 # Vendor dependencies

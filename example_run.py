@@ -11,7 +11,7 @@ LINK_RATE_1 = 50e9
 PACKET_BYTES = 1500
 HEADER_BYTES = 0
 
-CHUNK_MB = 256  # 你也可以改小一点让测试更快，比如 4
+CHUNK_MB = 64  # 你也可以改小一点让测试更快，比如 4
 
 
 def build_topology():
